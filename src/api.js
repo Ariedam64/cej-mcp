@@ -43,6 +43,11 @@ export async function listActions() {
   return data?.actions ?? [];
 }
 
+export async function getActionsByDateRange(dateDebut, dateFin) {
+  const data = await apiFetch('GET', `/jeunes/${getIdJeune()}/actions?dateDebut=${dateDebut}&dateFin=${dateFin}`);
+  return data?.actions ?? data ?? [];
+}
+
 export async function createAction(payload) {
   return apiFetch('POST', `/jeunes/${getIdJeune()}/action`, payload);
 }
@@ -53,4 +58,45 @@ export async function updateAction(idAction, payload) {
 
 export async function deleteAction(idAction) {
   return apiFetch('DELETE', `/actions/${idAction}`);
+}
+
+export async function getActionDetails(idAction) {
+  return apiFetch('GET', `/actions/${idAction}`);
+}
+
+export async function getActionComments(idAction) {
+  return apiFetch('GET', `/actions/${idAction}/commentaires`);
+}
+
+export async function addActionComment(idAction, comment) {
+  return apiFetch('POST', `/actions/${idAction}/commentaires`, { comment });
+}
+
+export async function getProfile() {
+  return apiFetch('GET', `/jeunes/${getIdJeune()}`);
+}
+
+export async function getConseillers() {
+  return apiFetch('GET', `/jeunes/${getIdJeune()}/conseillers`);
+}
+
+export async function getNotifications() {
+  return apiFetch('GET', `/jeunes/${getIdJeune()}/notifications`);
+}
+
+export async function getAgenda() {
+  const maintenant = encodeURIComponent(new Date().toISOString());
+  return apiFetch('GET', `/jeunes/${getIdJeune()}/home/agenda?maintenant=${maintenant}`);
+}
+
+export async function getAnimationsCollectives() {
+  return apiFetch('GET', `/jeunes/${getIdJeune()}/animations-collectives`);
+}
+
+export async function searchMessages(recherche) {
+  return apiFetch('GET', `/jeunes/${getIdJeune()}/messages?recherche=${encodeURIComponent(recherche)}`);
+}
+
+export async function sendMessage(idConversation, message) {
+  return apiFetch('POST', '/messages', { idConversation, message });
 }
