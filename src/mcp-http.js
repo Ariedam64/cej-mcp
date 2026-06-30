@@ -1,4 +1,4 @@
-import http from 'http';
+import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -6,10 +6,10 @@ import { execSync } from 'child_process';
 import { listActions, createAction, updateAction, deleteAction } from './api.js';
 
 const DATE_FIN_CEJ = new Date('2026-07-21');
-const MCP_SECRET = process.env.MCP_SECRET ?? '';
-
-// En cloud les repos locaux ne sont pas accessibles — git_activity retourne vide
 const GIT_REPOS = (process.env.GIT_REPOS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+const PORT = process.env.PORT ?? 3000;
+const BASE_URL = (process.env.BASE_URL ?? `http://localhost:${PORT}`).replace(/\/$/, '');
+const OAUTH_TOKEN = process.env.OAUTH_TOKEN ?? 'cej-token-2026';
 
 function getGitActivity(dateFrom, dateTo) {
   const commits = [];
@@ -21,13 +21,9 @@ function getGitActivity(dateFrom, dateTo) {
       );
       for (const line of output.trim().split('\n').filter(Boolean)) {
         const pipeIdx = line.indexOf('|');
-        commits.push({
-          date: line.slice(0, pipeIdx),
-          message: line.slice(pipeIdx + 1),
-          repo: repo.split(/[/\\]/).pop(),
-        });
+        commits.push({ date: line.slice(0, pipeIdx), message: line.slice(pipeIdx + 1), repo: repo.split(/[/\\]/).pop() });
       }
-    } catch { /* repo inaccessible — skip */ }
+    } catch { /* inaccessible — skip */ }
   }
   const byDate = {};
   for (const { date, message, repo } of commits) {
@@ -36,8 +32,6 @@ function getGitActivity(dateFrom, dateTo) {
   }
   return Object.fromEntries(Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)));
 }
-
-// ─── Création du serveur MCP ──────────────────────────────────────────────────
 
 function createMCPServer() {
   const server = new Server(
@@ -73,9 +67,9 @@ function createMCPServer() {
               items: {
                 type: 'object',
                 properties: {
-                  content: { type: 'string', description: 'Ex: "Developpement", "Sport", "Candidature"' },
-                  comment: { type: 'string', description: 'Court et factuel, 1-2 phrases max' },
-                  dateEcheance: { type: 'string', description: 'ISO 8601 ex: "2026-07-01T12:00:00.000Z"' },
+                  content: { type: 'string' },
+                  comment: { type: 'string' },
+                  dateEcheance: { type: 'string' },
                   codeQualification: {
                     type: 'string',
                     enum: ['PROJET_PROFESSIONNEL', 'CULTURE_SPORT_LOISIRS', 'EMPLOI', 'FORMATION', 'SANTE', 'LOGEMENT', 'CITOYENNETE'],
@@ -90,7 +84,7 @@ function createMCPServer() {
       },
       {
         name: 'cej_delete_action',
-        description: 'Supprime une action CEJ (remet à not_started puis supprime). Utiliser cej_list_actions pour trouver l\'ID.',
+        description: 'Supprime une action CEJ (remet à not_started puis supprime).',
         inputSchema: {
           type: 'object',
           properties: { idAction: { type: 'string' } },
@@ -99,7 +93,7 @@ function createMCPServer() {
       },
       {
         name: 'cej_git_activity',
-        description: 'Récupère les commits git des repos configurés sur une plage de dates. En mode cloud, nécessite GIT_REPOS env var (chemins séparés par virgule).',
+        description: 'Récupère les commits git des repos configurés sur une plage de dates.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -114,7 +108,6 @@ function createMCPServer() {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-
     try {
       if (name === 'cej_stats') {
         const actions = await listActions();
@@ -142,9 +135,7 @@ function createMCPServer() {
 
       if (name === 'cej_list_actions') {
         const actions = await listActions();
-        const sorted = [...actions].sort((a, b) =>
-          (b.dateEcheance ?? '').localeCompare(a.dateEcheance ?? '')
-        );
+        const sorted = [...actions].sort((a, b) => (b.dateEcheance ?? '').localeCompare(a.dateEcheance ?? ''));
         return {
           content: [{
             type: 'text',
@@ -172,12 +163,7 @@ function createMCPServer() {
           }
         }
         const ok = results.filter(r => r.ok).length;
-        return {
-          content: [{
-            type: 'text',
-            text: `${ok}/${actions.length} actions créées.\n\n${JSON.stringify(results, null, 2)}`,
-          }],
-        };
+        return { content: [{ type: 'text', text: `${ok}/${actions.length} actions créées.\n\n${JSON.stringify(results, null, 2)}` }] };
       }
 
       if (name === 'cej_delete_action') {
@@ -190,23 +176,14 @@ function createMCPServer() {
       if (name === 'cej_git_activity') {
         const { dateFrom, dateTo } = args;
         if (GIT_REPOS.length === 0) {
-          return {
-            content: [{ type: 'text', text: 'Git activity non disponible en mode cloud (GIT_REPOS non configuré). Décris tes activités directement.' }],
-          };
+          return { content: [{ type: 'text', text: 'Git activity non disponible en mode cloud. Décris tes activités directement.' }] };
         }
         const activity = getGitActivity(dateFrom, dateTo);
-        const dayCount = Object.keys(activity).length;
         const commitCount = Object.values(activity).flat().length;
-        return {
-          content: [{
-            type: 'text',
-            text: `${commitCount} commits sur ${dayCount} jours (${dateFrom} → ${dateTo})\n\n${JSON.stringify(activity, null, 2)}`,
-          }],
-        };
+        return { content: [{ type: 'text', text: `${commitCount} commits sur ${Object.keys(activity).length} jours\n\n${JSON.stringify(activity, null, 2)}` }] };
       }
 
       return { content: [{ type: 'text', text: `Outil inconnu : ${name}` }], isError: true };
-
     } catch (err) {
       return { content: [{ type: 'text', text: `Erreur : ${err.message}` }], isError: true };
     }
@@ -215,42 +192,63 @@ function createMCPServer() {
   return server;
 }
 
-// ─── Serveur HTTP ─────────────────────────────────────────────────────────────
+// ─── Express app ──────────────────────────────────────────────────────────────
 
-const PORT = process.env.PORT ?? 3000;
+const app = express();
 
-const httpServer = http.createServer(async (req, res) => {
-  // Health check
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, mcp-session-id');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+  next();
+});
+
+app.use(express.json());
+
+// ─── OAuth 2.0 (auto-approve — usage perso uniquement) ───────────────────────
+
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  res.json({
+    issuer: BASE_URL,
+    authorization_endpoint: `${BASE_URL}/authorize`,
+    token_endpoint: `${BASE_URL}/token`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+  });
+});
+
+app.get('/authorize', (req, res) => {
+  const { redirect_uri, state } = req.query;
+  if (!redirect_uri) { res.status(400).send('Missing redirect_uri'); return; }
+  const url = new URL(String(redirect_uri));
+  url.searchParams.set('code', 'cej-auth-code');
+  if (state) url.searchParams.set('state', String(state));
+  res.redirect(url.toString());
+});
+
+app.post('/token', express.urlencoded({ extended: true }), (req, res) => {
+  res.json({ access_token: OAUTH_TOKEN, token_type: 'Bearer', expires_in: 31536000 });
+});
+
+// ─── MCP endpoint ─────────────────────────────────────────────────────────────
+
+app.all('/mcp', async (req, res) => {
+  const auth = req.headers['authorization'] ?? '';
+  if (auth !== `Bearer ${OAUTH_TOKEN}`) {
+    res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-
-  if (req.url !== '/mcp') {
-    res.writeHead(404);
-    res.end('Not found');
-    return;
-  }
-
-  // Auth check
-  if (MCP_SECRET) {
-    const auth = req.headers['authorization'] ?? '';
-    if (auth !== `Bearer ${MCP_SECRET}`) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
-    }
-  }
-
   const server = createMCPServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
-  await transport.handleRequest(req, res);
+  await transport.handleRequest(req, res, req.body);
   res.on('close', () => server.close().catch(() => {}));
 });
 
-httpServer.listen(PORT, () => {
-  console.error(`MCP HTTP server listening on port ${PORT}`);
-  if (!MCP_SECRET) console.error('⚠️  MCP_SECRET non défini — endpoint non protégé');
+app.get('/health', (req, res) => res.json({ ok: true }));
+
+app.listen(PORT, () => {
+  console.error(`CEJ MCP server on port ${PORT} — ${BASE_URL}`);
 });
