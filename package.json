@@ -1,0 +1,19 @@
+{
+  "name": "cej-actions",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "list": "node src/index.js list",
+    "stats": "node src/index.js stats",
+    "create": "node src/index.js create",
+    "mcp": "node src/mcp.js",
+    "start": "node src/mcp-http.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
